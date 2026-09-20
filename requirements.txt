@@ -1,0 +1,4 @@
+numpy
+opencv-python
+redis
+face_recognition

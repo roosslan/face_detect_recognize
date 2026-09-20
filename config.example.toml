@@ -1,0 +1,31 @@
+# Copy this file to config.toml and edit it. config.toml is meant to stay out of git.
+
+[camera]
+rtsp_url = "rtsp://user:password@192.168.1.10:554/stream"
+transport = "tcp"            # "tcp" (reliable) or "udp" (slightly lower latency)
+reconnect_delay_sec = 3.0    # pause before reconnecting after the stream is lost
+timeout_sec = 5.0            # open/read timeout; a hung camera triggers a reconnect
+
+[redis]
+host = "127.0.0.1"
+port = 6379
+db = 0
+password = ""               # leave empty when Redis has no auth
+stream_key = "face_events"  # Redis Stream that receives the events
+stream_maxlen = 10000       # keep roughly the last N events
+
+[recognition]
+faces_dir = "faces"         # one photo per person, file name (without extension) = name
+tolerance = 0.6             # max face distance counted as a match (lower = stricter)
+# Detection range. The detector needs a face of about 30 px (with upsample = 1) in the image it
+# runs on, i.e. roughly 30 / detect_scale px in the frame. A lower detect_scale is faster but
+# the face must be closer: on a 720x480 stream 0.25 finds faces from ~120 px (~60 cm), 0.75
+# from ~40 px (~1.7 m). Raise it (up to 1.0) to see farther, or lower it to save CPU.
+detect_scale = 0.75         # frames are downscaled by this factor before detection
+upsample = 1                # detector upsampling passes: +1 finds smaller faces, ~4x slower
+model = "hog"               # "hog" (CPU) or "cnn" (more accurate, needs a GPU-enabled dlib)
+min_interval_sec = 0.0      # minimum time between two recognition passes (0 = as fast as possible)
+
+[events]
+log_cooldown_sec = 10.0     # log the same person at most once per N seconds
+log_unknown = false         # also log faces that were not recognized
