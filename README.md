@@ -13,15 +13,6 @@ boxes and names is optional.
                                  preview window (main thread)
 ```
 
-## Why it does not lag
-
-The camera is read in its own thread that always keeps only the **newest** frame. Slow face
-recognition therefore never blocks the stream: the decoder buffer cannot fill up, latency does
-not accumulate, and the preview stays smooth. Recognition runs on whatever the newest frame is
-at the moment it becomes free. The stream is opened through OpenCV's FFmpeg backend with
-low-latency options (`nobuffer`, `low_delay`, TCP or UDP transport) and reconnects
-automatically when the signal is lost. GStreamer is not required.
-
 ## Requirements
 
 - Python 3.12 or newer
