@@ -1,0 +1,4 @@
+# Tests only need numpy: cv2, dlib and redis are imported lazily and faked in tests.
+numpy
+pytest
+ruff
