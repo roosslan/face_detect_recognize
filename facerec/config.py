@@ -34,7 +34,7 @@ class RedisConfig:
 class RecognitionConfig:
     faces_dir: str = "faces"
     tolerance: float = 0.6  # max face distance still counted as a match (lower = stricter)
-    detect_scale: float = 0.75  # frames are downscaled by this factor before detection
+    detect_scale: float = 0.5  # frames are downscaled by this factor before detection
     upsample: int = 1  # detector upsampling passes: +1 finds smaller faces, but is ~4x slower
     model: str = "hog"  # "hog" (CPU, fast) or "cnn" (more accurate, needs a GPU)
     min_interval_sec: float = 0.0  # throttle: minimum time between two recognition passes
@@ -47,11 +47,23 @@ class EventsConfig:
 
 
 @dataclass(frozen=True)
+class SnapshotsConfig:
+    enabled: bool = True
+    directory: str = "capture"
+    cooldown_sec: float = 10.0  # after a snapshot, wait at least this long for the next one
+    settle_sec: float = 1.5  # after motion starts, wait this long for a face to be recognized
+    motion_area: float = 0.005  # share of the frame that must change to count as motion
+    motion_delta: float = 25.0  # change (0-255) of a colour channel that makes a pixel "changed"
+    annotate: bool = True  # draw boxes and names on the snapshot
+
+
+@dataclass(frozen=True)
 class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
+    snapshots: SnapshotsConfig = field(default_factory=SnapshotsConfig)
 
 
 def redact_url(url: str) -> str:
@@ -113,6 +125,7 @@ def _build_section(cls: type, name: str, data: Any) -> Any:
 
 def _validate(config: Config) -> None:
     cam, rd, rec, ev = config.camera, config.redis, config.recognition, config.events
+    snap = config.snapshots
     if not cam.rtsp_url:
         raise ConfigError("[camera] rtsp_url is required")
     _require(cam.transport in ("tcp", "udp"), "[camera] transport must be 'tcp' or 'udp'")
@@ -129,6 +142,11 @@ def _validate(config: Config) -> None:
     _require(rec.model in ("hog", "cnn"), "[recognition] model must be 'hog' or 'cnn'")
     _require(rec.min_interval_sec >= 0, "[recognition] min_interval_sec must be >= 0")
     _require(ev.log_cooldown_sec >= 0, "[events] log_cooldown_sec must be >= 0")
+    _require(bool(snap.directory), "[snapshots] directory must not be empty")
+    _require(snap.cooldown_sec >= 0, "[snapshots] cooldown_sec must be >= 0")
+    _require(snap.settle_sec >= 0, "[snapshots] settle_sec must be >= 0")
+    _require(0 < snap.motion_area < 1, "[snapshots] motion_area must be in (0, 1)")
+    _require(0 < snap.motion_delta <= 255, "[snapshots] motion_delta must be in (0, 255]")
 
 
 def _require(condition: bool, message: str) -> None:

@@ -1,7 +1,8 @@
 # face_detect_recognize
 
 Recognizes known people on an RTSP camera stream and writes "person seen" events to a
-Redis Stream. A live preview window with boxes and names is optional.
+Redis Stream. It also saves a snapshot whenever something moves. A live preview window with
+boxes and names is optional.
 
 ```
                  ┌──────────────┐  newest frame   ┌──────────────────┐   events   ┌───────┐
@@ -75,26 +76,50 @@ invalid values are rejected at startup with a clear message.
 | `[recognition]` | `model`               | `hog` (CPU) or `cnn` (more accurate, needs a GPU-enabled dlib) |
 | `[events]`      | `log_cooldown_sec`    | Log the same person at most once per N seconds              |
 | `[events]`      | `log_unknown`         | Also log faces that were not recognized (`Unknown`)         |
+| `[snapshots]`   | `enabled`, `directory` | Snapshots on motion and where to put them (`capture`)      |
+| `[snapshots]`   | `cooldown_sec`, `settle_sec` | Minimum pause between snapshots; how long to wait for a face after motion starts |
+| `[snapshots]`   | `motion_area`, `motion_delta` | Motion sensitivity (see below)                    |
+| `[snapshots]`   | `annotate`            | Draw boxes and names on the snapshot                        |
 
 ### Detection distance
 
 The face detector (dlib HOG) needs a face of about 30 px in the image it runs on (with
 `upsample = 1`), so the smallest detectable face in the frame is roughly `30 / detect_scale`
-px. The distance is then set by the camera's resolution and field of view: the more pixels
-across the frame, the farther a face is still large enough. Measured on a 720x480 stream
-(synthetic frames, one CPU); the distances are calibrated on the 60 cm that the old
-`0.25` setting was observed to reach:
+px. How far away that is depends on the stream: the more pixels across the frame, the farther a
+face is still large enough. Measured on one CPU with synthetic frames; the distances are
+approximate and calibrated on the 60 cm that `detect_scale = 0.25` was observed to reach on a
+720x480 stream:
 
-| `detect_scale` / `upsample` | Smallest face found | Detection time | Approx. distance |
-|-----------------------------|---------------------|----------------|------------------|
-| 0.25 / 1                    | ~120 px             | 8 ms           | 60 cm            |
-| 0.5 / 1                     | ~60 px              | 33 ms          | 1.1 m            |
-| **0.75 / 1 (default)**      | ~40 px              | 76 ms          | 1.7 m            |
-| 1.0 / 1                     | ~32 px              | 131 ms         | 2.2 m            |
+| `detect_scale` | Smallest face | 720x480: distance, time | 1280x720: distance, time |
+|----------------|---------------|-------------------------|--------------------------|
+| 0.25           | ~120 px       | 0.6 m, 8 ms             | 1.1 m, 23 ms             |
+| **0.5 (default)** | ~60 px     | 1.1 m, 33 ms            | 2.0 m, 87 ms             |
+| 0.75           | ~40 px        | 1.7 m, 76 ms            | 3.0 m, 195 ms            |
+| 1.0            | ~30 px        | 2.2 m, 131 ms           | 3.9 m, 352 ms            |
 
 Face encodings are always computed on the full-resolution frame, not on the downscaled copy
-used for detection, because a small face is recognized much more reliably that way. A higher
-camera resolution (main stream instead of a sub-stream) extends the range further.
+used for detection, because a small face is recognized much more reliably that way.
+
+## Snapshots on motion
+
+When something moves in front of the camera, a snapshot is saved to `capture/`
+(`[snapshots]` in the config). The file name is `dd-mm-yyyy-hh-mm-person_name.jpg`, for example
+`20-09-2026-14-03-rasa.jpg`; when nobody was recognized the name part is left out:
+`20-09-2026-14-03.jpg`. Several recognized people are joined with `+`
+(`...-rasa+tima.jpg`), and a second snapshot within the same minute gets ` (2)`, ` (3)`, ...
+instead of overwriting the first one.
+
+Recognition needs a moment (a person has to enter the frame and turn to the camera), so after
+motion starts the program waits up to `settle_sec` for a known person to be recognized. The
+snapshot is taken as soon as somebody is named, or when that time is up without a name. After a
+snapshot the next one is taken no sooner than `cooldown_sec` later. Boxes and names are drawn on
+the picture unless `annotate = false`.
+
+Motion is detected by comparing each frame with a slowly adapting background: a person who
+stops moving fades into it after a couple of seconds, and a change of the whole picture (lights
+switched on, exposure or IR-cut change) is not counted as motion. Tune `motion_area` (share of
+the frame that must change) and `motion_delta` (brightness change per pixel) if the camera
+triggers too often or misses movement. The folder is not cleaned up automatically.
 
 ## Events
 
@@ -140,6 +165,9 @@ facerec/
   faces.py       known faces, encodings cache, distance matching
   recognizer.py  detection + matching and the background recognition worker
   events.py      Redis Stream writer with per-person cooldown
+  motion.py      motion detection (numpy only)
+  snapshots.py   snapshots on motion, file naming
+  overlay.py     boxes and names drawn on frames
   app.py         command line, preview window
 tests/           unit tests
 old/             the previous prototype, kept for reference only

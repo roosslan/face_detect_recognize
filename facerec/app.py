@@ -9,7 +9,10 @@ from facerec import events
 from facerec.capture import LatestFrameReader, make_rtsp_capture
 from facerec.config import Config, ConfigError, load_config, redact_url
 from facerec.faces import load_known_faces
-from facerec.recognizer import UNKNOWN, DlibEngine, FaceRecognizer, RecognitionWorker
+from facerec.motion import MotionDetector
+from facerec.overlay import annotated, draw_detections
+from facerec.recognizer import DlibEngine, FaceRecognizer, RecognitionWorker
+from facerec.snapshots import MotionSnapshotter, MotionWorker, SnapshotWriter
 
 log = logging.getLogger("facerec")
 
@@ -85,8 +88,23 @@ def main(argv: list[str] | None = None) -> int:
         reader, recognizer, event_logger.handle, config.recognition.min_interval_sec
     )
 
+    workers = [worker]
+    snaps = config.snapshots
+    if snaps.enabled:
+        snapshotter = MotionSnapshotter(
+            MotionDetector(snaps.motion_delta, snaps.motion_area),
+            SnapshotWriter(snaps.directory),
+            worker.latest_detections,
+            snaps.cooldown_sec,
+            snaps.settle_sec,
+            annotate=annotated if snaps.annotate else None,
+        )
+        workers.append(MotionWorker(reader, snapshotter))
+        log.info("Snapshots on motion -> '%s'", snaps.directory)
+
     reader.start()
-    worker.start()
+    for w in workers:
+        w.start()
     try:
         if args.headless:
             run_headless()
@@ -95,7 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        worker.stop()
+        for w in workers:
+            w.stop()
         reader.stop()
     return 0
 
@@ -141,25 +160,6 @@ def run_viewer(reader: LatestFrameReader, worker: RecognitionWorker) -> None:
                 break  # window closed with the X button
     finally:
         cv2.destroyAllWindows()
-
-
-def draw_detections(canvas, detections) -> None:
-    import cv2
-
-    for det in detections:
-        top, right, bottom, left = det.box
-        color = (0, 0, 255) if det.name == UNKNOWN else (0, 255, 0)
-        cv2.rectangle(canvas, (left, top), (right, bottom), color, 2)
-        cv2.rectangle(canvas, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
-        cv2.putText(
-            canvas,
-            det.name,
-            (left + 6, bottom - 6),
-            cv2.FONT_HERSHEY_DUPLEX,
-            0.8,
-            (255, 255, 255),
-            1,
-        )
 
 
 if __name__ == "__main__":

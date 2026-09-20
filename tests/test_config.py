@@ -11,6 +11,21 @@ def test_defaults_are_applied():
     assert cfg.events.log_unknown is False
 
 
+def test_snapshot_defaults():
+    snap = parse_config({"camera": {"rtsp_url": "x"}}).snapshots
+    assert snap.enabled is True
+    assert snap.directory == "capture"
+    assert snap.annotate is True
+
+
+def test_snapshots_can_be_disabled_and_redirected():
+    cfg = parse_config(
+        {"camera": {"rtsp_url": "x"}, "snapshots": {"enabled": False, "directory": "shots"}}
+    )
+    assert cfg.snapshots.enabled is False
+    assert cfg.snapshots.directory == "shots"
+
+
 def test_values_are_overridden():
     cfg = parse_config(
         {
@@ -46,6 +61,12 @@ def test_rtsp_url_is_required():
         ("recognition", "upsample", -1, "upsample"),
         ("recognition", "model", "svm", "model"),
         ("events", "log_cooldown_sec", -1, "log_cooldown_sec"),
+        ("snapshots", "directory", "", "directory"),
+        ("snapshots", "cooldown_sec", -1, "cooldown_sec"),
+        ("snapshots", "settle_sec", -0.5, "settle_sec"),
+        ("snapshots", "motion_area", 0, "motion_area"),
+        ("snapshots", "motion_area", 1, "motion_area"),
+        ("snapshots", "motion_delta", 300, "motion_delta"),
     ],
 )
 def test_invalid_values_are_rejected(section, key, value, message):
