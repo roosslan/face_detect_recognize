@@ -13,6 +13,11 @@ def test_defaults():
     assert args.list is None
 
 
+def test_self_test_flag():
+    assert app.build_parser().parse_args(["--self-test"]).self_test is True
+    assert app.build_parser().parse_args([]).self_test is False
+
+
 def test_list_without_count_defaults_to_twenty():
     assert app.build_parser().parse_args(["--list"]).list == 20
 
@@ -73,3 +78,23 @@ def test_frozen_exe_takes_an_explicit_config_relative_to_where_it_was_typed(
 
 def test_frozen_app_dir_is_none_for_a_script():
     assert app.frozen_app_dir() is None
+
+
+def test_self_test_passes_when_nothing_raises(monkeypatch):
+    monkeypatch.setattr(app, "run_self_test", lambda: None)
+    assert app.main(["--self-test"]) == 0
+
+
+def test_self_test_reports_a_failure_with_exit_code_1(monkeypatch, caplog):
+    def broken():
+        raise ImportError("no dlib")
+
+    monkeypatch.setattr(app, "run_self_test", broken)
+    assert app.main(["--self-test"]) == 1
+    assert "Self-test failed" in caplog.text
+
+
+def test_self_test_does_not_need_a_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "run_self_test", lambda: None)
+    monkeypatch.chdir(tmp_path)  # no config.toml here
+    assert app.main(["--self-test"]) == 0

@@ -2,3 +2,5 @@ numpy
 opencv-python
 redis
 face_recognition
+# face_recognition_models imports pkg_resources, which newer setuptools no longer ship
+setuptools<81

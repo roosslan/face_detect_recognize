@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--headless", action="store_true", help="run without the preview window")
     parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="check that all libraries and dlib models load (useful for a freshly built exe)",
+    )
+    parser.add_argument(
         "--list",
         nargs="?",
         const=20,
@@ -46,11 +51,33 @@ def frozen_app_dir() -> Path | None:
     return Path(sys.executable).parent if getattr(sys, "frozen", False) else None
 
 
+def run_self_test() -> None:
+    """Load everything the program needs and run detection on a blank image.
+
+    Fails if a library or a dlib model file is missing, which is what can go wrong in a
+    freshly built exe: it starts fine and would only fail on the first camera frame."""
+    import cv2
+    import numpy
+    import redis
+
+    log.info("cv2 %s, numpy %s, redis %s", cv2.__version__, numpy.__version__, redis.__version__)
+    DlibEngine().detect(numpy.zeros((120, 160, 3), numpy.uint8))  # loads dlib and its models
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
     )
+
+    if args.self_test:
+        try:
+            run_self_test()
+        except Exception:
+            log.exception("Self-test failed")
+            return 1
+        log.info("Self-test passed")
+        return 0
 
     # The exe keeps config.toml, faces/ and capture/ next to itself, whatever folder it was
     # started from (a shortcut or a scheduled task may use any). An explicit --config is taken
