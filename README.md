@@ -16,12 +16,21 @@ boxes and names is optional.
 ## Requirements
 
 - Python 3.12 or newer
-- A working `dlib` (installed by `face_recognition`). On Windows this needs CMake and the
-  Visual Studio C++ build tools unless a prebuilt wheel is available for your Python version.
+- A working `dlib` (installed by `face_recognition`). On Windows, compiling it needs CMake and
+  the Visual Studio C++ build tools.
 - A Redis server
 
 ```
 pip install -r requirements.txt
+```
+
+To avoid compiling dlib on Windows, install the prebuilt `dlib-bin` (it provides the same `dlib`
+module) and keep pip from pulling the `dlib` sdist:
+
+```
+pip install dlib-bin
+pip install --no-deps face_recognition face_recognition_models
+pip install numpy opencv-python redis Pillow Click "setuptools<81"
 ```
 
 ## Setup
@@ -44,12 +53,50 @@ pip install -r requirements.txt
 ```
 python main.py                    # run with the preview window, press q to quit
 python main.py --headless         # no window, stop with Ctrl+C
-python main.py --config other.toml
+python main.py --config other.toml   # default: config.toml in the current folder
 python main.py --list             # print the last 20 events from Redis and exit
 python main.py --list 50
+python main.py --self-test        # check that OpenCV, dlib and its models load, then exit
 ```
 
 `python -m facerec` works the same way as `python main.py`.
+
+## Building a single exe
+
+On Windows the program can be packed into one `facerec.exe` with PyInstaller:
+
+```
+pip install -r requirements-build.txt
+pyinstaller facerec.spec
+```
+
+The result is `dist/facerec.exe` (about 180 MB: OpenCV, dlib and dlib's face models are inside).
+It is built for the Python and Windows version it was built with, so build it on a machine
+where the program already runs from source.
+
+To run it, put these next to the exe:
+
+```
+facerec.exe
+config.toml      copy of config.example.toml with your camera
+faces/           one photo per person
+```
+
+`capture/` and the encodings cache (`faces/.encodings_cache.json`) are created there too. The
+exe always works in its own folder, whichever folder or shortcut it is started from. An explicit
+`--config` path is taken relative to where you typed it. All command line options are the same
+as for `python main.py`. It is a console program: logs go to the window and Ctrl+C stops it.
+Because it is a single file, it unpacks itself to a temporary folder on every start, which
+takes a few seconds.
+
+`facerec.exe --self-test` loads OpenCV, dlib and all its model files from inside the exe and
+runs detection on a blank image, so a build that lost a library or a model is caught before it
+meets a camera.
+
+The **Build exe** GitHub workflow does all of this on Windows without compiling dlib (it uses
+`dlib-bin`): build, `--self-test`, and the exe is uploaded as the `facerec-windows` artifact
+(kept for 14 days). Start it from the Actions tab ("Run workflow"), by pushing a `v*` tag, or
+it runs on pull requests that touch the code, `facerec.spec` or the requirements.
 
 ## Configuration
 
@@ -109,7 +156,7 @@ the picture unless `annotate = false`.
 Motion is detected by comparing each frame with a slowly adapting background: a person who
 stops moving fades into it after a couple of seconds, and a change of the whole picture (lights
 switched on, exposure or IR-cut change) is not counted as motion. Tune `motion_area` (share of
-the frame that must change) and `motion_delta` (brightness change per pixel) if the camera
+the frame that must change) and `motion_delta` (colour change per pixel) if the camera
 triggers too often or misses movement. The folder is not cleaned up automatically.
 
 ## Events
@@ -160,6 +207,7 @@ facerec/
   snapshots.py   snapshots on motion, file naming
   overlay.py     boxes and names drawn on frames
   app.py         command line, preview window
+facerec.spec     PyInstaller build recipe for the single exe
 tests/           unit tests
 old/             the previous prototype, kept for reference only
 ```
