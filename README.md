@@ -5,11 +5,11 @@ Redis Stream. It also saves a snapshot whenever something moves. A live preview 
 boxes and names is optional.
 
 ```
-                 ┌──────────────┐  newest frame   ┌──────────────────┐   events   ┌───────┐
- RTSP camera ──▶ │ reader thread│ ──────────────▶ │ recognition      │ ─────────▶ │ Redis │
-                 │ (drops old   │        │        │ thread           │            │Stream │
-                 │  frames)     │        │        │ dlib: detect+match│           └───────┘
-                 └──────────────┘        ▼        └──────────────────┘
+                 ┌──────────────┐  newest frame   ┌─────────────────-─┐   events   ┌───────┐
+ RTSP camera ──> │ reader thread│ ──────────────> │ recognition       │ ─────────> │ Redis │
+                 │ (drops old   │        │        │ thread            │            │Stream │
+                 │  frames)     │        │        │ dlib: detect+match│            └───────┘
+                 └──────────────┘        ▼        └─────────────────-─┘
                                  preview window (main thread)
 ```
 
