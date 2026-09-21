@@ -16,12 +16,21 @@ boxes and names is optional.
 ## Requirements
 
 - Python 3.12 or newer
-- A working `dlib` (installed by `face_recognition`). On Windows this needs CMake and the
-  Visual Studio C++ build tools unless a prebuilt wheel is available for your Python version.
+- A working `dlib` (installed by `face_recognition`). On Windows, compiling it needs CMake and
+  the Visual Studio C++ build tools.
 - A Redis server
 
 ```
 pip install -r requirements.txt
+```
+
+To avoid compiling dlib on Windows, install the prebuilt `dlib-bin` (it provides the same `dlib`
+module) and keep pip from pulling the `dlib` sdist:
+
+```
+pip install dlib-bin
+pip install --no-deps face_recognition face_recognition_models
+pip install numpy opencv-python redis Pillow Click "setuptools<81"
 ```
 
 ## Setup
@@ -47,6 +56,7 @@ python main.py --headless         # no window, stop with Ctrl+C
 python main.py --config other.toml   # default: config.toml in the current folder
 python main.py --list             # print the last 20 events from Redis and exit
 python main.py --list 50
+python main.py --self-test        # check that OpenCV, dlib and its models load, then exit
 ```
 
 `python -m facerec` works the same way as `python main.py`.
@@ -78,6 +88,15 @@ exe always works in its own folder, whichever folder or shortcut it is started f
 as for `python main.py`. It is a console program: logs go to the window and Ctrl+C stops it.
 Because it is a single file, it unpacks itself to a temporary folder on every start, which
 takes a few seconds.
+
+`facerec.exe --self-test` loads OpenCV, dlib and all its model files from inside the exe and
+runs detection on a blank image, so a build that lost a library or a model is caught before it
+meets a camera.
+
+The **Build exe** GitHub workflow does all of this on Windows without compiling dlib (it uses
+`dlib-bin`): build, `--self-test`, and the exe is uploaded as the `facerec-windows` artifact
+(kept for 14 days). Start it from the Actions tab ("Run workflow"), by pushing a `v*` tag, or
+it runs on pull requests that touch the code, `facerec.spec` or the requirements.
 
 ## Configuration
 

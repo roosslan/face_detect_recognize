@@ -1,0 +1,67 @@
+name: Build exe
+
+# Builds the single-file Windows exe with PyInstaller and checks that it works.
+# It is separate from CI because it needs the heavy runtime dependencies (OpenCV, dlib).
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - facerec/**
+      - main.py
+      - facerec.spec
+      - requirements*.txt
+      - .github/workflows/build-exe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        # bash stops at the first failing command; the default PowerShell would carry on
+        # after a failed `pip install` and only report the exit code of the last one
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      # dlib has no wheels for Windows on PyPI, and compiling it takes many minutes. dlib-bin
+      # ships a prebuilt wheel with the same `dlib` module. face_recognition itself asks for a
+      # package named `dlib`, which pip would then try to compile, hence --no-deps and the
+      # explicit list of everything else (keep it in sync with requirements.txt).
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dlib-bin
+          python -m pip install --no-deps face_recognition face_recognition_models
+          python -m pip install numpy opencv-python redis Pillow Click "setuptools<81" pyinstaller
+
+      - name: Build
+        run: pyinstaller facerec.spec --noconfirm --clean
+
+      # Loads OpenCV, dlib and all its model files from inside the exe. A build that misses
+      # a library or the *.dat models starts fine, so a plain launch would not notice.
+      - name: Self-test the exe
+        run: dist/facerec.exe --self-test
+
+      - name: Report size
+        shell: pwsh
+        run: |
+          $exe = Get-Item dist\facerec.exe
+          "facerec.exe: {0:N1} MB" -f ($exe.Length / 1MB) | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: facerec-windows
+          path: dist/facerec.exe
+          if-no-files-found: error
+          retention-days: 14
