@@ -44,12 +44,40 @@ pip install -r requirements.txt
 ```
 python main.py                    # run with the preview window, press q to quit
 python main.py --headless         # no window, stop with Ctrl+C
-python main.py --config other.toml
+python main.py --config other.toml   # default: config.toml in the current folder
 python main.py --list             # print the last 20 events from Redis and exit
 python main.py --list 50
 ```
 
 `python -m facerec` works the same way as `python main.py`.
+
+## Building a single exe
+
+On Windows the program can be packed into one `facerec.exe` with PyInstaller:
+
+```
+pip install -r requirements-build.txt
+pyinstaller facerec.spec
+```
+
+The result is `dist/facerec.exe` (about 180 MB: OpenCV, dlib and dlib's face models are inside).
+It is built for the Python and Windows version it was built with, so build it on a machine
+where the program already runs from source.
+
+To run it, put these next to the exe:
+
+```
+facerec.exe
+config.toml      copy of config.example.toml with your camera
+faces/           one photo per person
+```
+
+`capture/` and the encodings cache (`faces/.encodings_cache.json`) are created there too. The
+exe always works in its own folder, whichever folder or shortcut it is started from. An explicit
+`--config` path is taken relative to where you typed it. All command line options are the same
+as for `python main.py`. It is a console program: logs go to the window and Ctrl+C stops it.
+Because it is a single file, it unpacks itself to a temporary folder on every start, which
+takes a few seconds.
 
 ## Configuration
 
@@ -109,7 +137,7 @@ the picture unless `annotate = false`.
 Motion is detected by comparing each frame with a slowly adapting background: a person who
 stops moving fades into it after a couple of seconds, and a change of the whole picture (lights
 switched on, exposure or IR-cut change) is not counted as motion. Tune `motion_area` (share of
-the frame that must change) and `motion_delta` (brightness change per pixel) if the camera
+the frame that must change) and `motion_delta` (colour change per pixel) if the camera
 triggers too often or misses movement. The folder is not cleaned up automatically.
 
 ## Events
@@ -160,6 +188,7 @@ facerec/
   snapshots.py   snapshots on motion, file naming
   overlay.py     boxes and names drawn on frames
   app.py         command line, preview window
+facerec.spec     PyInstaller build recipe for the single exe
 tests/           unit tests
 old/             the previous prototype, kept for reference only
 ```

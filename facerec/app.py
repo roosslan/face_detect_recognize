@@ -2,8 +2,10 @@
 
 import argparse
 import logging
+import os
 import sys
 import time
+from pathlib import Path
 
 from facerec import events
 from facerec.capture import LatestFrameReader, make_rtsp_capture
@@ -22,7 +24,11 @@ NO_SIGNAL_AFTER_SEC = 3.0
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="facerec", description=__doc__)
-    parser.add_argument("--config", default="config.toml", help="path to the TOML config")
+    parser.add_argument(
+        "--config",
+        help="path to the TOML config (default: config.toml next to the exe, or in the "
+        "current folder when run as a script)",
+    )
     parser.add_argument("--headless", action="store_true", help="run without the preview window")
     parser.add_argument(
         "--list",
@@ -35,14 +41,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def frozen_app_dir() -> Path | None:
+    """Folder of the exe when running as a PyInstaller build, None when run as a script."""
+    return Path(sys.executable).parent if getattr(sys, "frozen", False) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
     )
 
+    # The exe keeps config.toml, faces/ and capture/ next to itself, whatever folder it was
+    # started from (a shortcut or a scheduled task may use any). An explicit --config is taken
+    # relative to where the user typed it.
+    exe_dir = frozen_app_dir()
+    if args.config:
+        config_path = Path(args.config).resolve()
+    else:
+        config_path = (exe_dir or Path.cwd()) / "config.toml"
+    if exe_dir:
+        os.chdir(exe_dir)
+
     try:
-        config = load_config(args.config)
+        config = load_config(config_path)
     except ConfigError as exc:
         log.error("%s", exc)
         return 2
