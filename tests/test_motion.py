@@ -92,3 +92,74 @@ def test_grayscale_frames_are_supported():
     moved = gray.copy()
     moved[100:160, 100:160] = 230
     assert detector.update(moved) is True
+
+
+# --- auto exposure / auto gain "breathing": a real-world cause of false positives ---
+#
+# A camera's own auto exposure or auto gain control brightens and dims the whole picture, but
+# not by the same amount everywhere: a dark wall and a bright doorway shift by different
+# absolute amounts under the same gain change. A plain "current - background" diff sees that
+# as motion spread across a big chunk of the frame. These tests use a two- or three-level scene
+# (dark / mid / bright, like a hallway with a lit doorway) instead of a single flat brightness,
+# because with only one brightness level any gain looks identical to a flat offset and would
+# hide this failure mode.
+
+
+def corridor(gain=1.0):
+    """A dark hallway with a bright doorway on the right, nobody in it."""
+    frame = np.full((H, W, 3), 40.0)
+    frame[:, W * 2 // 3 :] = 220.0
+    return np.clip(frame * gain, 0, 255).astype(np.uint8)
+
+
+def three_level_scene(gain=1.0):
+    """Dark wall, mid-grey floor, bright doorway close to the sensor's limit."""
+    frame = np.full((H, W, 3), 40.0)
+    frame[:, W // 3 : 2 * W // 3] = 120.0
+    frame[:, 2 * W // 3 :] = 220.0
+    return np.clip(frame * gain, 0, 255).astype(np.uint8)
+
+
+def test_camera_exposure_breathing_is_not_motion():
+    detector = MotionDetector()
+    detector.update(corridor(1.0))
+    ramp = [0.5 + 0.8 * i / 29 for i in range(30)]  # exposure drifts down and back up
+    assert not any(detector.update(corridor(gain)) for gain in ramp)
+
+
+def test_motion_is_still_detected_while_exposure_is_breathing():
+    detector = MotionDetector()
+    detector.update(corridor(1.0))
+    ramp = [0.5 + 0.8 * i / 29 for i in range(30)]
+    seen = []
+    for i, gain in enumerate(ramp):
+        frame = corridor(gain)
+        if 10 <= i < 20:  # someone walks through while the exposure is still drifting
+            left = 30 + (i - 10) * 20
+            frame[200:400, left : left + 60] = 90
+        seen.append(detector.update(frame))
+    assert all(seen[10:20])
+    assert not any(seen[:10] + seen[20:])
+
+
+def test_sudden_light_switch_does_not_look_like_motion():
+    detector = MotionDetector()
+    detector.update(corridor(1.0))
+    assert detector.update(corridor(2.5)) is False  # the light is switched fully on at once
+    assert detector.update(corridor(2.5)) is False  # holds at the new level
+    assert detector.update(with_block(corridor(2.5), 300, 200, value=20)) is True  # real object
+
+
+def test_gradual_climb_past_the_sensors_limit_is_not_motion():
+    """The doorway (already the brightest thing in view) clips against 255 as exposure keeps
+    rising; that clipping alone must not read as motion, and a real object right after still
+    must."""
+    detector = MotionDetector()
+    frame = three_level_scene(1.0)
+    for _ in range(40):  # background settles, including the clipped doorway
+        detector.update(frame)
+    ramp = [1.0 + 0.02 * i for i in range(41)]  # 1.0 -> 1.8, gradually
+    assert not any(detector.update(three_level_scene(gain)) for gain in ramp)
+    dark_object = three_level_scene(1.8).copy()
+    dark_object[200:260, 300:360] = 10
+    assert detector.update(dark_object) is True

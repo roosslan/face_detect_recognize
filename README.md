@@ -154,10 +154,20 @@ snapshot the next one is taken no sooner than `cooldown_sec` later. Boxes and na
 the picture unless `annotate = false`.
 
 Motion is detected by comparing each frame with a slowly adapting background: a person who
-stops moving fades into it after a couple of seconds, and a change of the whole picture (lights
-switched on, exposure or IR-cut change) is not counted as motion. Tune `motion_area` (share of
-the frame that must change) and `motion_delta` (colour change per pixel) if the camera
-triggers too often or misses movement. The folder is not cleaned up automatically.
+stops moving fades into it after a couple of seconds. Before comparing, the frame is corrected
+for a camera-wide brightness/colour shift (auto exposure, auto gain, IR-cut switching between
+day and night mode): such a shift changes almost the whole picture, but by a different amount
+in dark and bright areas (for example a sunrise slowly brightening a dim hallway and a lit
+doorway by different amounts), so a plain "background vs. frame" comparison sees it as
+widespread motion. Each colour channel is fit to the new frame by least squares before diffing;
+real motion is a small part of the frame and barely affects that fit, so a moving object still
+stands out afterwards. A patch that is already at the sensor's limit in both frames (a light
+fixture, a window) is also ignored, since it cannot show a real difference, only clipping.
+
+If the camera still triggers too often — very large, abrupt lighting jumps (not gradual ones)
+can still occasionally get through — or misses real movement, tune `motion_area` (share of the
+frame that must change) and `motion_delta` (colour change per pixel). The folder is not cleaned
+up automatically.
 
 ## Events
 
