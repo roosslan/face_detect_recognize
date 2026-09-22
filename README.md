@@ -1,31 +1,32 @@
 # face_detect_recognize
 
-Recognizes known people on an RTSP camera stream and writes "person seen" events to a
-Redis Stream. It also saves a snapshot whenever something moves. A live preview window with
-boxes and names is optional.
+Распознаёт известных людей в RTSP-потоке камеры и пишет события «человек замечен» в Redis
+Stream. Также сохраняет снимок при любом движении в кадре. Окно предпросмотра с рамками и
+именами по желанию можно отключить.
 
 ```
-                 ┌──────────────┐  newest frame   ┌─────────────────-─┐   events   ┌───────┐
- RTSP camera ──> │ reader thread│ ──────────────> │ recognition       │ ─────────> │ Redis │
-                 │ (drops old   │        │        │ thread            │            │Stream │
-                 │  frames)     │        │        │ dlib: detect+match│            └───────┘
+                 ┌──────────────┐  свежий кадр    ┌─────────────────-─┐  события   ┌───────┐
+ RTSP-камера ──> │ поток чтения │ ──────────────> │ поток             │ ─────────> │ Redis │
+                 │ (отбрасывает │        │        │ распознавания     │            │Stream │
+                 │  старые      │        │        │ dlib: детекция+   │            └───────┘
+                 │  кадры)      │        │        │ сравнение         │
                  └──────────────┘        ▼        └─────────────────-─┘
-                                 preview window (main thread)
+                                 окно предпросмотра (главный поток)
 ```
 
-## Requirements
+## Требования
 
-- Python 3.12 or newer
-- A working `dlib` (installed by `face_recognition`). On Windows, compiling it needs CMake and
-  the Visual Studio C++ build tools.
-- A Redis server
+- Python 3.12 или новее
+- Рабочий `dlib` (ставится вместе с `face_recognition`). На Windows для сборки из исходников
+  нужны CMake и Visual Studio C++ Build Tools.
+- Сервер Redis
 
 ```
 pip install -r requirements.txt
 ```
 
-To avoid compiling dlib on Windows, install the prebuilt `dlib-bin` (it provides the same `dlib`
-module) and keep pip from pulling the `dlib` sdist:
+Чтобы не собирать dlib на Windows из исходников, поставьте готовый `dlib-bin` (даёт тот же
+модуль `dlib`) и не дайте pip подтянуть исходники `dlib`:
 
 ```
 pip install dlib-bin
@@ -33,168 +34,172 @@ pip install --no-deps face_recognition face_recognition_models
 pip install numpy opencv-python redis Pillow Click "setuptools<81"
 ```
 
-## Setup
+## Настройка
 
-1. Create the `faces/` folder and put **one clear photo per person** into it. The file name
-   without the extension is the name that ends up in the events (`rasa.jpg` → `rasa`).
-   Supported formats: `.jpg`, `.jpeg`, `.png`. Photos are personal data: keep them out of git
-   (for example with an entry in `.git/info/exclude`).
-2. Copy the example config and edit it:
+1. Создайте папку `faces/` и положите туда **по одному чёткому фото на человека**. Имя файла
+   без расширения станет именем, которое попадёт в события (`rasa.jpg` → `rasa`).
+   Поддерживаемые форматы: `.jpg`, `.jpeg`, `.png`. Фото — персональные данные: держите их вне
+   git (например, через запись в `.git/info/exclude`).
+2. Скопируйте пример конфигурации и отредактируйте его:
 
    ```
    cp config.example.toml config.toml
    ```
 
-   At minimum set `camera.rtsp_url`. `config.toml` may contain the camera password, so keep it
-   out of git as well.
+   Обязательно нужно задать `camera.rtsp_url`. В `config.toml` может быть пароль от камеры,
+   поэтому его тоже не стоит класть в git.
 
-## Usage
+## Запуск
 
 ```
-python main.py                    # run with the preview window, press q to quit
-python main.py --headless         # no window, stop with Ctrl+C
-python main.py --config other.toml   # default: config.toml in the current folder
-python main.py --list             # print the last 20 events from Redis and exit
+python main.py                    # с окном предпросмотра, выход по клавише q
+python main.py --headless         # без окна, остановка по Ctrl+C
+python main.py --config other.toml   # по умолчанию: config.toml в текущей папке
+python main.py --list             # вывести последние 20 событий из Redis и выйти
 python main.py --list 50
-python main.py --self-test        # check that OpenCV, dlib and its models load, then exit
+python main.py --self-test        # проверить, что OpenCV, dlib и модели загружаются, и выйти
 ```
 
-`python -m facerec` works the same way as `python main.py`.
+`python -m facerec` работает точно так же, как `python main.py`.
 
-## Building a single exe
+## Сборка в один exe
 
-On Windows the program can be packed into one `facerec.exe` with PyInstaller:
+На Windows программу можно собрать в один файл `facerec.exe` с помощью PyInstaller:
 
 ```
 pip install -r requirements-build.txt
 pyinstaller facerec.spec
 ```
 
-The result is `dist/facerec.exe` (about 180 MB: OpenCV, dlib and dlib's face models are inside).
-It is built for the Python and Windows version it was built with, so build it on a machine
-where the program already runs from source.
+Результат — `dist/facerec.exe` (около 180 МБ: внутри OpenCV, dlib и модели dlib для лиц). Он
+собирается под ту версию Python и Windows, на которой запускалась сборка, поэтому собирайте
+его на машине, где программа уже работает из исходников.
 
-To run it, put these next to the exe:
+Чтобы запустить, положите рядом с exe:
 
 ```
 facerec.exe
-config.toml      copy of config.example.toml with your camera
-faces/           one photo per person
+config.toml      копия config.example.toml с вашей камерой
+faces/           по одному фото на человека
 ```
 
-`capture/` and the encodings cache (`faces/.encodings_cache.json`) are created there too. The
-exe always works in its own folder, whichever folder or shortcut it is started from. An explicit
-`--config` path is taken relative to where you typed it. All command line options are the same
-as for `python main.py`. It is a console program: logs go to the window and Ctrl+C stops it.
-Because it is a single file, it unpacks itself to a temporary folder on every start, which
-takes a few seconds.
+`capture/` и кэш кодировок (`faces/.encodings_cache.json`) там же и создадутся. exe всегда
+работает в своей собственной папке, из какой бы папки или ярлыка его ни запустили. Явно
+указанный `--config` берётся относительно того места, откуда его набрали. Все параметры
+командной строки те же, что и для `python main.py`. Это консольная программа: журнал выводится
+в окно, а Ctrl+C её останавливает. Поскольку это один файл, при каждом запуске он
+распаковывает себя во временную папку, что занимает несколько секунд.
 
-`facerec.exe --self-test` loads OpenCV, dlib and all its model files from inside the exe and
-runs detection on a blank image, so a build that lost a library or a model is caught before it
-meets a camera.
+`facerec.exe --self-test` загружает OpenCV, dlib и все файлы моделей из самого exe и
+прогоняет детекцию на пустом изображении — так сборка, потерявшая библиотеку или модель,
+будет обнаружена раньше, чем дело дойдёт до настоящей камеры.
 
-The **Build exe** GitHub workflow does all of this on Windows without compiling dlib (it uses
-`dlib-bin`): build, `--self-test`, and the exe is uploaded as the `facerec-windows` artifact
-(kept for 14 days). Start it from the Actions tab ("Run workflow"), by pushing a `v*` tag, or
-it runs on pull requests that touch the code, `facerec.spec` or the requirements.
+Workflow **Build exe** в GitHub делает всё то же самое на Windows без сборки dlib из исходников
+(используется `dlib-bin`): сборка, `--self-test`, затем exe выкладывается как артефакт
+`facerec-windows` (хранится 14 дней). Запускается вручную из вкладки Actions («Run workflow»),
+по пушу тега `v*`, либо на pull request, затрагивающий код, `facerec.spec` или файлы
+зависимостей.
 
-## Configuration
+## Конфигурация
 
-All options are documented in [`config.example.toml`](config.example.toml). Unknown keys and
-invalid values are rejected at startup with a clear message.
+Все параметры описаны в [`config.example.toml`](config.example.toml). Неизвестные ключи и
+недопустимые значения отклоняются при запуске с понятным сообщением.
 
-| Section         | Key                   | Meaning                                                    |
-|-----------------|-----------------------|------------------------------------------------------------|
-| `[camera]`      | `rtsp_url`            | Stream URL (required); credentials are masked in logs       |
-| `[camera]`      | `transport`           | `tcp` (reliable) or `udp` (slightly lower latency)          |
-| `[camera]`      | `timeout_sec`         | Open/read timeout; a hung camera triggers a reconnect       |
-| `[recognition]` | `tolerance`           | Max face distance counted as a match, lower is stricter     |
-| `[recognition]` | `detect_scale`        | Frames are downscaled by this factor before detection; **the main knob for detection distance** (see below) |
-| `[recognition]` | `upsample`            | Detector upsampling passes: +1 finds smaller faces but is ~4x slower |
-| `[recognition]` | `model`               | `hog` (CPU) or `cnn` (more accurate, needs a GPU-enabled dlib) |
-| `[events]`      | `log_cooldown_sec`    | Log the same person at most once per N seconds              |
-| `[events]`      | `log_unknown`         | Also log faces that were not recognized (`Unknown`)         |
-| `[snapshots]`   | `enabled`, `directory` | Snapshots on motion and where to put them (`capture`)      |
-| `[snapshots]`   | `cooldown_sec`, `settle_sec` | Minimum pause between snapshots; how long to wait for a face after motion starts |
-| `[snapshots]`   | `motion_area`, `motion_delta` | Motion sensitivity (see below)                    |
-| `[snapshots]`   | `annotate`            | Draw boxes and names on the snapshot                        |
+| Раздел          | Ключ                   | Значение                                                   |
+|-----------------|------------------------|-------------------------------------------------------------|
+| `[camera]`      | `rtsp_url`             | Адрес потока (обязателен); учётные данные скрываются в журнале |
+| `[camera]`      | `transport`            | `tcp` (надёжнее) или `udp` (чуть меньше задержка)            |
+| `[camera]`      | `timeout_sec`          | Таймаут открытия/чтения; зависший поток вызывает переподключение |
+| `[recognition]` | `tolerance`            | Максимальное расстояние до лица, при котором это ещё совпадение; меньше — строже |
+| `[recognition]` | `detect_scale`         | Во сколько раз кадр уменьшается перед детекцией; **главный параметр дальности распознавания** (см. ниже) |
+| `[recognition]` | `upsample`             | Число проходов увеличения детектора: +1 находит лица мельче, но в ~4 раза медленнее |
+| `[recognition]` | `model`                | `hog` (CPU) или `cnn` (точнее, нужен dlib с поддержкой GPU)  |
+| `[events]`      | `log_cooldown_sec`     | Записывать одного и того же человека не чаще, чем раз в N секунд |
+| `[events]`      | `log_unknown`          | Также записывать нераспознанные лица (`Unknown`)             |
+| `[snapshots]`   | `enabled`, `directory` | Снимки при движении и куда их складывать (`capture`)         |
+| `[snapshots]`   | `cooldown_sec`, `settle_sec` | Минимальная пауза между снимками; сколько ждать распознавания лица после начала движения |
+| `[snapshots]`   | `motion_area`, `motion_delta` | Чувствительность к движению (см. ниже)                |
+| `[snapshots]`   | `annotate`             | Рисовать рамки и имена на снимке                             |
 
-### Detection distance
+### Дальность распознавания
 
-The face detector (dlib HOG) needs a face of about 30 px in the image it runs on (with
-`upsample = 1`), so the smallest detectable face in the frame is roughly `30 / detect_scale`
-px. How far away that is depends on the stream: the more pixels across the frame, the farther a
-face is still large enough. Measured on one CPU with synthetic frames; the distances are
-approximate and calibrated on the 60 cm that `detect_scale = 0.25` was observed to reach on a
-720x480 stream:
+Детектору лиц (dlib HOG) нужно лицо шириной примерно 30 px в том изображении, на котором он
+работает (при `upsample = 1`), поэтому наименьшее различимое лицо в кадре — это примерно
+`30 / detect_scale` px. Насколько это далеко, зависит от потока: чем больше пикселей в кадре,
+тем дальше лицо остаётся достаточно крупным. Измерено на одном CPU на синтетических кадрах;
+расстояния приблизительны и откалиброваны по тем 60 см, на которых `detect_scale = 0.25`
+реально сработал на потоке 720x480:
 
-| `detect_scale` | Smallest face | 720x480: distance, time | 1280x720: distance, time |
-|----------------|---------------|-------------------------|--------------------------|
-| 0.25           | ~120 px       | 0.6 m, 8 ms             | 1.1 m, 23 ms             |
-| **0.5 (default)** | ~60 px     | 1.1 m, 33 ms            | 2.0 m, 87 ms             |
-| 0.75           | ~40 px        | 1.7 m, 76 ms            | 3.0 m, 195 ms            |
-| 1.0            | ~30 px        | 2.2 m, 131 ms           | 3.9 m, 352 ms            |
+| `detect_scale`     | Наименьшее лицо | 720x480: расстояние, время | 1280x720: расстояние, время |
+|---------------------|-----------------|------------------------------|-------------------------------|
+| 0.25                | ~120 px         | 0,6 м, 8 мс                  | 1,1 м, 23 мс                  |
+| **0.5 (по умолчанию)** | ~60 px      | 1,1 м, 33 мс                 | 2,0 м, 87 мс                  |
+| 0.75                | ~40 px          | 1,7 м, 76 мс                 | 3,0 м, 195 мс                 |
+| 1.0                 | ~30 px          | 2,2 м, 131 мс                | 3,9 м, 352 мс                 |
 
-Face encodings are always computed on the full-resolution frame, not on the downscaled copy
-used for detection, because a small face is recognized much more reliably that way.
+Кодировки лиц всегда считаются по кадру в полном разрешении, а не по уменьшенной копии,
+которая используется для детекции, — так мелкое лицо распознаётся заметно надёжнее.
 
-## Snapshots on motion
+## Снимки при движении
 
-When something moves in front of the camera, a snapshot is saved to `capture/`
-(`[snapshots]` in the config). The file name is `dd-mm-yyyy-hh-mm-person_name.jpg`, for example
-`20-09-2026-14-03-rasa.jpg`; when nobody was recognized the name part is left out:
-`20-09-2026-14-03.jpg`. Several recognized people are joined with `+`
-(`...-rasa+tima.jpg`), and a second snapshot within the same minute gets ` (2)`, ` (3)`, ...
-instead of overwriting the first one.
+Когда перед камерой что-то движется, снимок сохраняется в `capture/` (раздел `[snapshots]` в
+конфигурации). Имя файла — `дд-мм-гггг-чч-мм-имя_человека.jpg`, например
+`20-09-2026-14-03-rasa.jpg`; если никого не узнали, часть с именем опускается:
+`20-09-2026-14-03.jpg`. Несколько распознанных людей соединяются знаком `+`
+(`...-rasa+tima.jpg`), а второй снимок в ту же минуту получает суффикс ` (2)`, ` (3)`, ... вместо
+того, чтобы перезаписать первый.
 
-Recognition needs a moment (a person has to enter the frame and turn to the camera), so after
-motion starts the program waits up to `settle_sec` for a known person to be recognized. The
-snapshot is taken as soon as somebody is named, or when that time is up without a name. After a
-snapshot the next one is taken no sooner than `cooldown_sec` later. Boxes and names are drawn on
-the picture unless `annotate = false`.
+Распознаванию нужно немного времени (человек должен войти в кадр и повернуться к камере),
+поэтому после начала движения программа ждёт до `settle_sec`, пока не распознает знакомое
+лицо. Снимок делается, как только кто-то назван по имени, либо когда это время истекло без
+результата. После снимка следующий делается не раньше чем через `cooldown_sec`. На картинке
+рисуются рамки и имена, если не выставлено `annotate = false`.
 
-Motion is detected by comparing each frame with a slowly adapting background: a person who
-stops moving fades into it after a couple of seconds. Before comparing, the frame is corrected
-for a camera-wide brightness/colour shift (auto exposure, auto gain, IR-cut switching between
-day and night mode): such a shift changes almost the whole picture, but by a different amount
-in dark and bright areas (for example a sunrise slowly brightening a dim hallway and a lit
-doorway by different amounts), so a plain "background vs. frame" comparison sees it as
-widespread motion. Each colour channel is fit to the new frame by least squares before diffing;
-real motion is a small part of the frame and barely affects that fit, so a moving object still
-stands out afterwards. A patch that is already at the sensor's limit in both frames (a light
-fixture, a window) is also ignored, since it cannot show a real difference, only clipping.
+Движение определяется сравнением каждого кадра с медленно подстраивающимся фоном: человек,
+остановившийся на месте, «растворяется» в фоне через пару секунд. Перед сравнением кадр
+корректируется на общий сдвиг яркости/цвета камеры (автоэкспозиция, автоусиление,
+переключение ИК-фильтра между дневным и ночным режимом): такой сдвиг меняет почти всю
+картинку, но по-разному в тёмных и светлых участках (например, восход солнца постепенно
+осветляет тёмный коридор и освещённый дверной проём на разную величину), поэтому прямое
+сравнение «фон против кадра» приняло бы это за движение по большей части кадра. Каждый
+цветовой канал подгоняется под новый кадр методом наименьших квадратов перед вычитанием;
+настоящее движение занимает малую часть кадра и почти не влияет на эту подгонку, поэтому
+движущийся объект всё равно выделяется после неё. Участок, уже упёршийся в предел яркости
+матрицы на обоих кадрах (лампа, окно), тоже игнорируется, поскольку там не может быть
+настоящей разницы — только обрезание сигнала.
 
-If the camera still triggers too often — very large, abrupt lighting jumps (not gradual ones)
-can still occasionally get through — or misses real movement, tune `motion_area` (share of the
-frame that must change) and `motion_delta` (colour change per pixel). The folder is not cleaned
-up automatically.
+Если камера всё ещё срабатывает слишком часто — очень резкий, одномоментный (а не плавный)
+скачок освещения иногда всё же может пройти — либо, наоборот, пропускает настоящее движение,
+подстройте `motion_area` (доля кадра, которая должна измениться) и `motion_delta` (изменение
+цвета на пиксель). Папка не очищается автоматически.
 
-## Events
+## События
 
-Every event is an entry of the Redis Stream `face_events` (configurable) with two fields:
+Каждое событие — запись в Redis Stream `face_events` (имя настраивается) с двумя полями:
 
 ```
 time = "2026-09-12 13:21:00"
 name = "rasa"
 ```
 
-The stream is trimmed to roughly `stream_maxlen` entries. To follow it live:
+Поток обрезается примерно до `stream_maxlen` записей. Чтобы следить за ним в реальном времени:
 
 ```
 redis-cli XREAD BLOCK 0 STREAMS face_events $
 ```
 
-If Redis is down at startup the program exits with an error. If it goes down later, failed
-writes are logged and retried on the next frame; recognition keeps running.
+Если Redis недоступен при запуске, программа завершается с ошибкой. Если он пропадает позже,
+неудачные записи логируются и повторяются на следующем кадре; распознавание при этом
+продолжает работать.
 
-## Encodings cache
+## Кэш кодировок
 
-Computing a face encoding from a large photo takes a while, so encodings are cached in
-`faces/.encodings_cache.json`. On the next start only new or changed photos (by size and
-modification time) are encoded again; removed photos are dropped from the cache. Delete the
-file to force a full rebuild.
+Вычисление кодировки лица по крупному фото занимает некоторое время, поэтому кодировки
+кэшируются в `faces/.encodings_cache.json`. При следующем запуске заново кодируются только
+новые или изменившиеся фото (по размеру и времени изменения); удалённые фото убираются из
+кэша. Чтобы пересчитать всё заново, удалите этот файл.
 
-## Development
+## Разработка
 
 ```
 pip install -r requirements-dev.txt
@@ -202,22 +207,22 @@ ruff check .
 pytest
 ```
 
-The tests use fakes for the camera, dlib and Redis, so they need only `numpy` and run without
-a camera, a GPU or a Redis server. The same checks run in GitHub Actions on Linux and Windows
-(`.github/workflows/ci.yml`).
+Тесты используют заглушки вместо камеры, dlib и Redis, поэтому им нужен только `numpy`, и они
+работают без камеры, GPU или сервера Redis. Те же проверки выполняются в GitHub Actions на
+Linux и Windows (`.github/workflows/ci.yml`).
 
 ```
 facerec/
-  config.py      TOML config: defaults, validation, credential masking
-  capture.py     newest-frame RTSP reader with automatic reconnect
-  faces.py       known faces, encodings cache, distance matching
-  recognizer.py  detection + matching and the background recognition worker
-  events.py      Redis Stream writer with per-person cooldown
-  motion.py      motion detection (numpy only)
-  snapshots.py   snapshots on motion, file naming
-  overlay.py     boxes and names drawn on frames
-  app.py         command line, preview window
-facerec.spec     PyInstaller build recipe for the single exe
-tests/           unit tests
-old/             the previous prototype, kept for reference only
+  config.py      конфигурация TOML: значения по умолчанию, проверка, скрытие учётных данных
+  capture.py     чтение RTSP с автопереподключением, всегда самый свежий кадр
+  faces.py       известные лица, кэш кодировок, сравнение по расстоянию
+  recognizer.py  детекция + сравнение и фоновый поток распознавания
+  events.py      запись в Redis Stream с задержкой на человека
+  motion.py      детекция движения (только numpy)
+  snapshots.py   снимки при движении, формирование имён файлов
+  overlay.py     рамки и имена, рисуемые на кадрах
+  app.py         командная строка, окно предпросмотра
+facerec.spec     сценарий сборки PyInstaller для единого exe
+tests/           модульные тесты
+old/             прежний прототип, оставлен для справки
 ```
