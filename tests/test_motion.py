@@ -150,6 +150,42 @@ def test_sudden_light_switch_does_not_look_like_motion():
     assert detector.update(with_block(corridor(2.5), 300, 200, value=20)) is True  # real object
 
 
+def test_night_day_switch_is_not_motion():
+    """The IR-cut filter moving in or out turns the whole picture from near-greyscale to
+    colour or back; that is a change of kind, not the gradual brightness/gain drift the fit
+    above corrects for, and must not be reported as motion."""
+    detector = MotionDetector()
+    night = np.full((H, W, 3), 80, dtype=np.uint8)
+    day = np.empty((H, W, 3), dtype=np.uint8)
+    day[..., 0], day[..., 1], day[..., 2] = 60, 80, 180  # far from grey
+    detector.update(night)
+    assert detector.update(day) is False
+
+
+def test_motion_is_detected_right_after_a_night_day_switch():
+    detector = MotionDetector()
+    night = np.full((H, W, 3), 80, dtype=np.uint8)
+    day = np.empty((H, W, 3), dtype=np.uint8)
+    day[..., 0], day[..., 1], day[..., 2] = 60, 80, 180
+    detector.update(night)
+    detector.update(day)  # the switch itself: absorbed, not reported
+    assert detector.update(with_block(day, 100, 100, value=10)) is True
+
+
+def test_scattered_single_block_noise_is_not_motion():
+    """Sensor/JPEG noise can push a handful of unrelated blocks past pixel_delta; real motion
+    lights up a solid patch of neighbouring blocks, which is what separates the two here."""
+    detector = MotionDetector()
+    base = scene()
+    detector.update(base)
+    noisy = base.astype(np.int16)
+    for y in range(0, H, 20):
+        for x in range(0, W, 20):
+            noisy[y : y + 4, x : x + 4] += 50  # one isolated block, well spaced from the rest
+    noisy = np.clip(noisy, 0, 255).astype(np.uint8)
+    assert detector.update(noisy) is False
+
+
 def test_gradual_climb_past_the_sensors_limit_is_not_motion():
     """The doorway (already the brightest thing in view) clips against 255 as exposure keeps
     rising; that clipping alone must not read as motion, and a real object right after still
