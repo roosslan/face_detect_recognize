@@ -120,12 +120,19 @@ def main(argv: list[str] | None = None) -> int:
         known,
         config.recognition.tolerance,
     )
+    snaps = config.snapshots
+    # Shared with the motion snapshotter below, so a Redis event and a motion trigger in the
+    # same minute get " (2)" instead of one silently overwriting the other.
+    snapshot_writer = SnapshotWriter(snaps.directory) if snaps.enabled else None
+    snapshot_annotate = annotated if snaps.enabled and snaps.annotate else None
     event_logger = events.EventLogger(
         client,
         config.redis.stream_key,
         config.redis.stream_maxlen,
         config.events.log_cooldown_sec,
         config.events.log_unknown,
+        snapshots=snapshot_writer,
+        annotate=snapshot_annotate,
     )
     cam = config.camera
     log.info("Camera: %s (%s)", redact_url(cam.rtsp_url), cam.transport)
@@ -138,18 +145,17 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     workers = [worker]
-    snaps = config.snapshots
-    if snaps.enabled:
+    if snapshot_writer is not None:
         snapshotter = MotionSnapshotter(
             MotionDetector(snaps.motion_delta, snaps.motion_area),
-            SnapshotWriter(snaps.directory),
+            snapshot_writer,
             worker.latest_detections,
             snaps.cooldown_sec,
             snaps.settle_sec,
-            annotate=annotated if snaps.annotate else None,
+            annotate=snapshot_annotate,
         )
         workers.append(MotionWorker(reader, snapshotter))
-        log.info("Snapshots on motion -> '%s'", snaps.directory)
+        log.info("Snapshots on motion, and on every Redis event -> '%s'", snaps.directory)
 
     reader.start()
     for w in workers:

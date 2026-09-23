@@ -87,7 +87,7 @@ class RecognitionWorker:
         self,
         reader: LatestFrameReader,
         recognizer: FaceRecognizer,
-        on_detections: Callable[[list[Detection]], None] | None = None,
+        on_detections: Callable[[list[Detection], Any], None] | None = None,
         min_interval: float = 0.0,
         clock: Callable[[], float] = time.monotonic,
     ):
@@ -133,7 +133,7 @@ class RecognitionWorker:
                 self._result = (detections, self._clock())
             if self._on_detections is not None:
                 try:
-                    self._on_detections(detections)
+                    self._on_detections(detections, snap.frame)
                 except Exception:
                     log.exception("Detection handler failed")
             remaining = self._min_interval - (self._clock() - started)

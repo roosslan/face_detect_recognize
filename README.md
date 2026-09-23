@@ -114,7 +114,7 @@ invalid values are rejected at startup with a clear message.
 | `[recognition]` | `model`               | `hog` (CPU) or `cnn` (more accurate, needs a GPU-enabled dlib) |
 | `[events]`      | `log_cooldown_sec`    | Log the same person at most once per N seconds              |
 | `[events]`      | `log_unknown`         | Also log faces that were not recognized (`Unknown`)         |
-| `[snapshots]`   | `enabled`, `directory` | Snapshots on motion and where to put them (`capture`)      |
+| `[snapshots]`   | `enabled`, `directory` | Snapshots (on motion and on every Redis event) and where to put them (`capture`) |
 | `[snapshots]`   | `cooldown_sec`, `settle_sec` | Minimum pause between snapshots; how long to wait for a face after motion starts |
 | `[snapshots]`   | `motion_area`, `motion_delta` | Motion sensitivity (see below)                    |
 | `[snapshots]`   | `annotate`            | Draw boxes and names on the snapshot                        |
@@ -138,7 +138,18 @@ approximate and calibrated on the 60 cm that `detect_scale = 0.25` was observed 
 Face encodings are always computed on the full-resolution frame, not on the downscaled copy
 used for detection, because a small face is recognized much more reliably that way.
 
-## Snapshots on motion
+## Snapshots
+
+A snapshot is saved to `capture/` (`[snapshots]` in the config) on two separate triggers:
+motion in front of the camera, and every event actually written to Redis. The second one
+means a Redis entry is never left without a picture of what caused it, even if it fires
+between motion events or motion is disabled (`enabled = false`) — for example a person who
+was already standing in frame gets recognized a while after motion first settled, on their
+own `log_cooldown_sec` schedule, independently of the motion-triggered snapshot. Both share
+the same folder, file naming and `annotate` setting, so two snapshots in the same minute get
+` (2)`, ` (3)`, ... instead of one overwriting the other.
+
+### On motion
 
 When something moves in front of the camera, a snapshot is saved to `capture/`
 (`[snapshots]` in the config). The file name is `dd-mm-yyyy-hh-mm-person_name.jpg`, for example
@@ -168,6 +179,15 @@ If the camera still triggers too often — very large, abrupt lighting jumps (no
 can still occasionally get through — or misses real movement, tune `motion_area` (share of the
 frame that must change) and `motion_delta` (colour change per pixel). The folder is not cleaned
 up automatically.
+
+### On a Redis event
+
+Every event that is actually written to Redis (see below) also saves a snapshot of the frame
+that was being recognized at that moment, named the same way as a motion snapshot
+(`dd-mm-yyyy-hh-mm-person_name.jpg`) — several people recognized in the same pass are joined
+with `+` in one file, not one snapshot each. This needs `[snapshots] enabled = true`; a
+failure to save it (a full disk, for example) is only logged and never blocks or retries the
+Redis write, which has already succeeded by that point.
 
 ## Events
 
@@ -212,7 +232,7 @@ facerec/
   capture.py     newest-frame RTSP reader with automatic reconnect
   faces.py       known faces, encodings cache, distance matching
   recognizer.py  detection + matching and the background recognition worker
-  events.py      Redis Stream writer with per-person cooldown
+  events.py      Redis Stream writer with per-person cooldown, snapshot on every event
   motion.py      motion detection (numpy only)
   snapshots.py   snapshots on motion, file naming
   overlay.py     boxes and names drawn on frames
