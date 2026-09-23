@@ -98,3 +98,89 @@ def test_self_test_does_not_need_a_config(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "run_self_test", lambda: None)
     monkeypatch.chdir(tmp_path)  # no config.toml here
     assert app.main(["--self-test"]) == 0
+
+
+# --- run_viewer / the preview window ---
+
+
+class FakeCv2:
+    """Stands in for cv2 for run_viewer: no real display needed. WND_PROP_VISIBLE and
+    FONT_HERSHEY_DUPLEX are arbitrary distinct sentinels, never interpreted, just passed
+    through the way the real constants would be."""
+
+    error = type("error", (Exception,), {})
+    WND_PROP_VISIBLE = 0
+    FONT_HERSHEY_DUPLEX = 1
+
+    def __init__(self, closed_after=None, property_raises_after=None):
+        self.closed_after = closed_after  # frame count after which the window "closes" (< 1)
+        self.property_raises_after = property_raises_after  # ...after which it raises instead
+        self.frames_shown = 0
+        self.destroyed = False
+
+    def imshow(self, _window, _canvas):
+        self.frames_shown += 1
+
+    def waitKey(self, _ms):
+        return -1  # nobody pressed q
+
+    def getWindowProperty(self, _window, _prop):
+        raises_after = self.property_raises_after
+        if raises_after is not None and self.frames_shown > raises_after:
+            raise self.error("NULL guiReceiver (please create a window)")
+        if self.closed_after is not None and self.frames_shown > self.closed_after:
+            return -1.0
+        return 1.0
+
+    def putText(self, *args, **kwargs):
+        pass
+
+    def destroyAllWindows(self):
+        self.destroyed = True
+
+
+class FakeReader:
+    def __init__(self, frames):
+        self._frames = list(frames)
+        self._sent = 0
+
+    def wait_for_new(self, _last_seq, timeout=0.1):
+        from facerec.capture import Snapshot
+
+        if self._sent < len(self._frames):
+            self._sent += 1
+            return Snapshot(self._frames[self._sent - 1], self._sent, 0.0)
+        return None
+
+    def latest(self):
+        return None
+
+
+class FakeWorker:
+    def latest_detections(self):
+        return []
+
+
+def frame():
+    import numpy as np
+
+    return np.zeros((10, 10, 3), dtype=np.uint8)
+
+
+def test_viewer_stops_normally_when_the_window_reports_closed(monkeypatch):
+    fake_cv2 = FakeCv2(closed_after=2)
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    app.run_viewer(FakeReader([frame(), frame(), frame(), frame()]), FakeWorker())
+    assert fake_cv2.frames_shown == 3  # stopped as soon as the property read reported closed
+    assert fake_cv2.destroyed is True
+
+
+def test_viewer_treats_a_getWindowProperty_crash_as_closed_not_an_error(monkeypatch):
+    """Regression test: on some OpenCV/Qt builds, closing the window with the X button tears
+    it down immediately, and the next getWindowProperty() raises cv2.error("NULL guiReceiver")
+    instead of returning < 1. That must stop the loop cleanly, not crash the program."""
+    fake_cv2 = FakeCv2(property_raises_after=2)
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    app.run_viewer(FakeReader([frame(), frame(), frame(), frame()]), FakeWorker())  # must not raise
+    assert fake_cv2.frames_shown == 3
+    assert fake_cv2.destroyed is True
