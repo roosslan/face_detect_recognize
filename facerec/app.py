@@ -189,6 +189,17 @@ def run_headless() -> None:
         time.sleep(1.0)
 
 
+def _window_is_open(cv2) -> bool:
+    """False once the window is gone. Closing it with the X button can, on some OpenCV/Qt
+    builds (seen on Linux), tear the window down immediately instead of just hiding it, so the
+    very next property check raises `cv2.error` ("NULL guiReceiver") rather than returning < 1
+    like it does everywhere else; that must count as "closed" too, not crash the program."""
+    try:
+        return cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) >= 1
+    except cv2.error:
+        return False
+
+
 def run_viewer(reader: LatestFrameReader, worker: RecognitionWorker) -> None:
     import cv2
 
@@ -211,7 +222,7 @@ def run_viewer(reader: LatestFrameReader, worker: RecognitionWorker) -> None:
             cv2.imshow(WINDOW, canvas)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
-            if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+            if not _window_is_open(cv2):
                 break  # window closed with the X button
     finally:
         cv2.destroyAllWindows()
