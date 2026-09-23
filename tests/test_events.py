@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from facerec.events import EventLogger, read_events
 from facerec.recognizer import UNKNOWN, Detection
@@ -112,6 +113,91 @@ def test_failed_write_does_not_raise_and_is_retried_immediately():
     client.fail = False  # no time has passed, the cooldown must not have started
     logger.handle([det("rasa")])
     assert len(client.entries) == 1
+
+
+# --- snapshot on event ---
+
+
+class FakeSnapshotWriter:
+    def __init__(self):
+        self.calls: list[tuple[Any, list[str], datetime]] = []
+        self.fail = False
+
+    def save(self, image, names, when):
+        if self.fail:
+            raise OSError("disk full")
+        self.calls.append((image, names, when))
+        return f"capture/{when:%d-%m-%Y-%H-%M}.jpg"
+
+
+def test_snapshot_is_saved_for_a_logged_event():
+    client, snapshots = FakeRedis(), FakeSnapshotWriter()
+    logger = make_logger(client, Clock(), snapshots=snapshots)
+    logger.handle([det("rasa")], frame="frame-1")
+    assert len(snapshots.calls) == 1
+    image, names, when = snapshots.calls[0]
+    assert (image, names) == ("frame-1", ["rasa"])
+    assert when == datetime(2026, 9, 12, 13, 21, 0)
+
+
+def test_no_snapshot_without_a_frame():
+    client, snapshots = FakeRedis(), FakeSnapshotWriter()
+    make_logger(client, Clock(), snapshots=snapshots).handle([det("rasa")])
+    assert len(client.entries) == 1  # the event is still logged
+    assert snapshots.calls == []
+
+
+def test_no_snapshot_without_a_writer_configured():
+    client = FakeRedis()
+    make_logger(client, Clock()).handle([det("rasa")], frame="frame-1")
+    assert len(client.entries) == 1
+
+
+def test_no_snapshot_when_the_event_is_skipped_by_cooldown():
+    client, clock, snapshots = FakeRedis(), Clock(), FakeSnapshotWriter()
+    logger = make_logger(client, clock, snapshots=snapshots)
+    logger.handle([det("rasa")], frame="frame-1")
+    logger.handle([det("rasa")], frame="frame-2")  # still within cooldown
+    assert len(snapshots.calls) == 1
+
+
+def test_snapshot_name_list_excludes_unknown():
+    client, snapshots = FakeRedis(), FakeSnapshotWriter()
+    logger = make_logger(client, Clock(), snapshots=snapshots, log_unknown=True)
+    logger.handle([det("rasa"), det(UNKNOWN)], frame="frame-1")
+    assert len(snapshots.calls) == 1  # one snapshot per call, not per logged name
+    assert snapshots.calls[0][1] == ["rasa"]
+
+
+def test_one_snapshot_per_call_even_with_several_people_logged():
+    client, snapshots = FakeRedis(), FakeSnapshotWriter()
+    logger = make_logger(client, Clock(), snapshots=snapshots)
+    logger.handle([det("rasa"), det("tima")], frame="frame-1")
+    assert len(snapshots.calls) == 1
+    assert snapshots.calls[0][1] == ["rasa", "tima"]
+
+
+def test_annotate_is_applied_before_saving():
+    client, snapshots = FakeRedis(), FakeSnapshotWriter()
+    annotate = lambda frame, dets: f"{frame}+boxes{len(dets)}"  # noqa: E731
+    logger = make_logger(client, Clock(), snapshots=snapshots, annotate=annotate)
+    logger.handle([det("rasa")], frame="frame-1")
+    assert snapshots.calls[0][0] == "frame-1+boxes1"
+
+
+def test_failed_snapshot_does_not_raise_or_undo_the_event(caplog):
+    client, clock, snapshots = FakeRedis(), Clock(), FakeSnapshotWriter()
+    snapshots.fail = True
+    logger = make_logger(client, clock, snapshots=snapshots)
+    logger.handle([det("rasa")], frame="frame-1")
+    assert len(client.entries) == 1  # the Redis write is unaffected
+    assert "snapshot" in caplog.text.lower()
+
+    clock.now += 20  # past the cooldown: confirms it was not blocked by the failure either
+    snapshots.fail = False
+    logger.handle([det("rasa")], frame="frame-2")
+    assert len(client.entries) == 2
+    assert len(snapshots.calls) == 1
 
 
 def test_read_events_returns_newest_first():

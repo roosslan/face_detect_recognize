@@ -81,7 +81,9 @@ def test_worker_processes_frames_and_notifies_handler():
     engine = FakeEngine([((1, 2, 3, 4), vec(0.0))])
     seen = []
     worker = RecognitionWorker(
-        FakeReader(["f1", "f2"]), FaceRecognizer(engine, KNOWN), on_detections=seen.append
+        FakeReader(["f1", "f2"]),
+        FaceRecognizer(engine, KNOWN),
+        on_detections=lambda detections, frame: seen.append((detections, frame)),
     )
     worker.start()
     try:
@@ -90,6 +92,7 @@ def test_worker_processes_frames_and_notifies_handler():
         worker.stop()
     assert engine.frames == ["f1", "f2"]
     assert [d.name for d in worker.latest_detections()] == ["ann"]
+    assert [frame for _, frame in seen] == ["f1", "f2"]  # the frame that was recognized
 
 
 def test_worker_survives_engine_and_handler_errors():
@@ -99,7 +102,7 @@ def test_worker_survives_engine_and_handler_errors():
                 raise RuntimeError("dlib exploded")
             return super().detect(frame_bgr)
 
-    def bad_handler(_):
+    def bad_handler(_detections, _frame):
         raise ValueError("handler exploded")
 
     engine = Flaky([((1, 2, 3, 4), vec(0.0))])
